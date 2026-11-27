@@ -149,7 +149,9 @@ def draw_caption(img, t):
             s = 1.0 if age > .17 else (.82 + .34 * ease_out(age / .1) if age < .1 else 1.16 - .16 * ((age - .1) / .07))
             if abs(s - 1) > .005: a = cv2.resize(a, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR)
             h, w = a.shape[:2]; x = W // 2 - w // 2; y = 1390 - h // 2
-            al = a[..., 3:4].astype(np.float32) / 255; img[y:y + h, x:x + w] = img[y:y + h, x:x + w] * (1 - al) + a[..., 2::-1] * al
+            x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, W), min(y + h, H)          # découpe aux bords de l'écran
+            a = a[y0 - y: y1 - y, x0 - x: x1 - x]
+            al = a[..., 3:4].astype(np.float32) / 255; img[y0:y1, x0:x1] = img[y0:y1, x0:x1] * (1 - al) + a[..., 2::-1] * al
             break
     return img
 # ---------------- effets
