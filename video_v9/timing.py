@@ -2,8 +2,8 @@
 usage: python3 -I timing.py <words.json whisper> <out timing.json>"""
 import sys, json, re, numpy as np
 FPS = 30
-SEGS = [(1.63, 206), (23.10, 204), (35.70, 341)]            # (début source, nb images)
-OUT0 = [0, 206 / FPS, 410 / FPS]                           # début de chaque plan sur la timeline finale
+SEGS = [(1.78, 200), (23.12, 203), (35.78, 60), (38.21, 81), (41.08, 176)]            # (début source, nb images)
+OUT0 = [sum(n for _, n in SEGS[:i]) / FPS for i in range(len(SEGS))]   # début de chaque plan sur la timeline finale
 W = json.load(open(sys.argv[1]))
 W = [(a, b, re.sub(r"[^\wÀ-ÿ']", "", w)) for a, b, w in W]; W = [w for w in W if w[2]]
 # groupes: (début voix réel, fin voix réelle) mesurés sur l'énergie audio, fenêtre whisper, texte corrigé, découpe sous-titres
@@ -59,14 +59,14 @@ def find(chunk_text, word):
     raise KeyError(word)
 ev = []   # événements sur mots clés
 def add(kind, ch, wd, **kw): s, e = find(ch, wd); ev.append(dict(kind=kind, t=s, t_end=e, **kw))
-add("plan1", "TA TESTOSTÉRONE", "TESTOSTÉRONE")
+add("plan1", "TA TESTOSTÉRONE", "TESTOSTÉRONE", dur=1.05)
 add("ultime", "ULTIME", "ULTIME")
 add("check", "DU SPORT", "SPORT", label="SPORT", n=0)
 add("check", "BOIRE DE L'EAU", "L'EAU", label="BOIRE DE L'EAU", n=1)
 add("check", "PAS FUMER", "FUMER", label="PAS FUMER", n=2)
 add("check", "PAS BOIRE", "BOIRE", label="PAS BOIRE", n=3)
 add("porcs", "DES GROS PORCS", "PORCS")
-add("plan2", "PLUS DE TESTOSTÉRONE", "PLUS", dur=1.55)
+add("plan2", "PLUS DE TESTOSTÉRONE", "PLUS", dur=1.25)
 add("toi", "QUE TOI", "TOI")
 total = sum(n for _, n in SEGS) / FPS
 json.dump({"fps": FPS, "total": total, "seg_out0": OUT0, "chunks": chunks_out, "events": ev}, open(sys.argv[2], "w"), ensure_ascii=False, indent=1)

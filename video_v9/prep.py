@@ -5,7 +5,7 @@ from huggingface_hub import hf_hub_download
 SRC, WD = sys.argv[1], sys.argv[2]
 FPS = 30
 # (début source en s, nb d'images) — coupes calées sur les silences réels
-SEGS = [(1.63, 206), (23.10, 204), (35.70, 341)]
+SEGS = [(1.78, 200), (23.12, 203), (35.78, 60), (38.21, 81), (41.08, 176)]
 os.makedirs(f"{WD}/frames", exist_ok=True)
 for k, (s, n) in enumerate(SEGS):
     subprocess.run(["ffmpeg","-v","error","-y","-ss",str(s),"-i",SRC,"-frames:v",str(n),"-q:v","2",

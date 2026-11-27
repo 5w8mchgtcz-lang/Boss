@@ -8,7 +8,7 @@ from multiprocessing import Pool
 W, H, FPS = 1080, 1920, 30
 WD, TJ, OUT = sys.argv[1:4]
 T = json.load(open(TJ)); EV = T["events"]; CH = T["chunks"]
-NF = int(round(T["total"] * FPS)); SEGN = [206, 204, 341]; SEGC = np.cumsum([0] + SEGN)
+NF = int(round(T["total"] * FPS)); SEGN = [200, 203, 60, 81, 176]; SEGC = np.cumsum([0] + SEGN)
 FB = "/usr/share/fonts/opentype/inter/Inter-ExtraBold.otf"
 YEL = (255, 230, 0)
 KEY = {"TESTOSTÉRONE", "ULTIME", "TECHNIQUE", "NATURELLEMENT", "HYGIÈNE", "VIE", "SPORT", "L'EAU", "FUMER", "BOIRE", "PORCS", "MERDE", "PLUS", "TOI"}
@@ -177,32 +177,62 @@ def pers_frame(fi):
     m = MM[fi].astype(np.float32) / 255; m = cv2.resize(m, (W, H), interpolation=cv2.INTER_CUBIC)
     m = np.clip((m - .1) / .78, 0, 1); m = cv2.GaussianBlur(m, (0, 0), 1.3)
     return f, m
+CLIPDIR = os.environ.get("CLIPS_DIR", f"{WD}/clips"); CAPS = {}
+def clip_frame(name, tl):
+    """image BGR (1080x1920, recadrée) du plan Artlist <name>.mp4 à tl secondes (boucle) ; None si le fichier n'existe pas"""
+    path = f"{CLIPDIR}/{name}.mp4"
+    if not os.path.exists(path): return None
+    if name not in CAPS: CAPS[name] = cv2.VideoCapture(path)
+    c = CAPS[name]; n = max(1, int(c.get(cv2.CAP_PROP_FRAME_COUNT))); fps = c.get(cv2.CAP_PROP_FPS) or 30
+    c.set(cv2.CAP_PROP_POS_FRAMES, int(tl * fps) % n); ok, f = c.read()
+    if not ok: return None
+    h, w = f.shape[:2]; k = max(W / w, H / h); f = cv2.resize(f, (int(w * k + .5), int(h * k + .5)), interpolation=cv2.INTER_CUBIC)
+    y0, x0 = (f.shape[0] - H) // 2, (f.shape[1] - W) // 2
+    return f[y0:y0 + H, x0:x0 + W].astype(np.float32)
+CLIPWIN = []   # (nom du plan, début, fin) : le plan passe DERRIÈRE la silhouette
+def build_windows():
+    chk = [e for e in EV if e["kind"] == "check"]
+    for i, e in enumerate(chk):
+        CLIPWIN.append((["sport", "eau", "fumer", "boire"][i], e["t"], e["t"] + (chk[i + 1]["t"] - e["t"] if i + 1 < len(chk) else 1.0)))
+    for c in CH:
+        if c["text"] == "QUE DE LA MERDE": CLIPWIN.append(("fastfood", c["t0"], c["t1"] + .3))
+build_windows()
 def scene_frame(fi, t):
-    si = scene_idx(t); f, m = pers_frame(fi)
-    f = np.clip((f - 128) * 1.06 + 128 + 4, 0, 255)                       # léger punch sur la silhouette
-    bg = background(t, si)[..., ::-1].copy()                                 # RGB -> BGR
-    out = rim_and_composite(bg, f, m, si, t)
-    # carte check
-    chk = [e for e in EV if e["kind"] == "check" and e["t"] <= t]
-    if chk and si == 2:
-        e = chk[-1]; out = check_card(out, e["label"], t - e["t"])
+    f, m = pers_frame(fi)
+    f = np.clip((f - 128) * 1.05 + 128 + 3, 0, 255)                            # léger punch, fond d'origine conservé
+    out = f
+    for name, a, b in CLIPWIN:
+        if a <= t < b:
+            bg = clip_frame(name, t - a)
+            if bg is not None:
+                u = min(1, (t - a) / .12); bg = bg * (.55 + .45 * u)               # entrée rapide du plan derrière vous
+                sh = cv2.resize(cv2.GaussianBlur(cv2.resize(m, (270, 480), interpolation=cv2.INTER_AREA), (0, 0), 10), (W, H))
+                bg = bg * (1 - .35 * np.roll(sh, 18, axis=0)[..., None])
+                out = bg * (1 - m[..., None]) + f * m[..., None]
+            break
+    chk = [e for e in EV if e["kind"] == "check" and e["t"] <= t < e["t"] + 1.05]  # cartes ✓ (illustrations)
+    if chk: out = check_card(out, chk[-1]["label"], t - chk[-1]["t"])
     return out
 def render(fi):
     t = fi / FPS; rng = np.random.default_rng(1000 + fi); fl = 0.0
     plans = [(e, e["t"], e.get("dur", 1.3)) for e in EV if e["kind"] in ("plan1", "plan2")]
     cur = None
     for e, t0, D in plans:
-        if t0 - .17 <= t < t0: cur = ("pre", e, t0, D)
+        if t0 - .13 <= t < t0: cur = ("pre", e, t0, D)
         elif t0 <= t < t0 + D: cur = ("card", e, t0, D)
         elif t0 + D <= t < t0 + D + .28: cur = ("post", e, t0, D)
     if cur and cur[0] == "card":
-        _, e, t0, D = cur; p = (t - t0) / D; card = plan1(p) if e["kind"] == "plan1" else plan2(p)
+        _, e, t0, D = cur; p = (t - t0) / D; cf = clip_frame("gym" if e["kind"] == "plan1" else "bodybuilder", t - t0)
+        if cf is not None:
+            card = txt_layer(cf[..., ::-1].copy(), "TESTOSTÉRONE" if e["kind"] == "plan1" else "+ DE TESTOSTÉRONE", W // 2, 330, 150, YEL, 10)
+        else:
+            card = plan1(p) if e["kind"] == "plan1" else plan2(p)
         card = card[..., ::-1].copy(); age = t - t0
         img = zoomblur(card, 1 + .4 * (1 - ease_out(age / .25)), .05 * (1 - ease_out(age / .25)))
         if age < .2: img = rgb_split(slices(img, rng, 4, 90), 18 * (1 - age / .2))
         fl = max(0, 1 - age / .14)
     elif cur and cur[0] == "pre":
-        _, e, t0, D = cur; u = (t - (t0 - .17)) / .17; img = zoomblur(scene_frame(fi, t), 1 + .55 * ease_in(u), .06 + .05 * u); img = rgb_split(img, 26 * u)
+        _, e, t0, D = cur; u = (t - (t0 - .13)) / .13; img = zoomblur(scene_frame(fi, t), 1 + .55 * ease_in(u), .06 + .05 * u); img = rgb_split(img, 26 * u)
     elif cur and cur[0] == "post":
         _, e, t0, D = cur; age = t - (t0 + D); img = zoomblur(scene_frame(fi, t), 1 + .3 * (1 - ease_out(age / .26)), .05 * (1 - ease_out(age / .26)))
         if age < .12: img = rgb_split(slices(img, rng, 5, 110), 20)
@@ -221,7 +251,7 @@ def render(fi):
             if 0 <= a < .14: img = rgb_split(slices(img, rng, 4, 80), 12 * (1 - a / .14))
     img = draw_caption(img, t)
     img = flash(img, fl)
-    img = img + rng.normal(0, 3.2, img.shape[:2])[..., None].astype(np.float32)   # grain léger
+    img = img + rng.normal(0, 2.0, img.shape[:2])[..., None].astype(np.float32)   # grain léger
     return np.clip(img, 0, 255).astype(np.uint8)
 MM = None
 def work(args):
